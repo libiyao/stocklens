@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { CandlestickSeries, ColorType, createChart, HistogramSeries, LineSeries } from "lightweight-charts";
+import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { CandlestickSeries, ColorType, createChart, HistogramSeries, IChartApi, LineSeries } from "lightweight-charts";
 import { calculateSMA } from "@/lib/indicators";
 import { Candle, PriceLevel, VolumeBin } from "@/lib/types";
 
@@ -10,6 +10,10 @@ interface ScenarioTargets {
   support: number;
   breakout: number;
   stretch: number;
+}
+
+export interface PriceChartHandle {
+  exportPng: (filename?: string) => void;
 }
 
 function futureTradingDays(from: string, offsets: number[]) {
@@ -24,13 +28,24 @@ function futureTradingDays(from: string, offsets: number[]) {
   return dates;
 }
 
-export function PriceChart({ candles, levels, profile, targets }: { candles: Candle[]; levels: PriceLevel[]; profile: VolumeBin[]; targets: ScenarioTargets }) {
+export const PriceChart = forwardRef<PriceChartHandle, { candles: Candle[]; levels: PriceLevel[]; profile: VolumeBin[]; targets: ScenarioTargets }>(function PriceChart({ candles, levels, profile, targets }, ref) {
   const container = useRef<HTMLDivElement>(null);
   const wrapper = useRef<HTMLDivElement>(null);
+  const chartApi = useRef<IChartApi | null>(null);
   const bullLabel = useRef<HTMLSpanElement>(null);
   const baseLabel = useRef<HTMLSpanElement>(null);
   const bearLabel = useRef<HTMLSpanElement>(null);
   const divider = useRef<HTMLDivElement>(null);
+  useImperativeHandle(ref, () => ({
+    exportPng(filename = "stocklens-chart.png") {
+      const canvas = chartApi.current?.takeScreenshot();
+      if (!canvas) return;
+      const link = document.createElement("a");
+      link.download = filename;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    },
+  }), []);
   useEffect(() => {
     if (!container.current) return;
     const chart = createChart(container.current, {
@@ -41,6 +56,7 @@ export function PriceChart({ candles, levels, profile, targets }: { candles: Can
       timeScale: { borderColor: "#243047", timeVisible: false, rightOffset: 2 },
       crosshair: { vertLine: { color: "#53627c", labelBackgroundColor: "#27344c" }, horzLine: { color: "#53627c", labelBackgroundColor: "#27344c" } },
     });
+    chartApi.current = chart;
     const candleSeries = chart.addSeries(CandlestickSeries, { upColor: "#22d3a6", downColor: "#f35f73", wickUpColor: "#22d3a6", wickDownColor: "#f35f73", borderVisible: false });
     candleSeries.setData(candles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
     const volumeSeries = chart.addSeries(HistogramSeries, { priceFormat: { type: "volume" }, priceScaleId: "volume" });
@@ -85,7 +101,7 @@ export function PriceChart({ candles, levels, profile, targets }: { candles: Can
     chart.timeScale().subscribeVisibleLogicalRangeChange(positionScenarioLabels);
     const observer = new ResizeObserver(([entry]) => { chart.applyOptions({ width: entry.contentRect.width }); requestAnimationFrame(positionScenarioLabels); });
     observer.observe(container.current);
-    return () => { observer.disconnect(); chart.timeScale().unsubscribeVisibleLogicalRangeChange(positionScenarioLabels); chart.remove(); };
+    return () => { chartApi.current = null; observer.disconnect(); chart.timeScale().unsubscribeVisibleLogicalRangeChange(positionScenarioLabels); chart.remove(); };
   }, [candles, levels, targets]);
   const maxVolume = Math.max(...profile.map(p => p.volume));
   return (
@@ -104,4 +120,4 @@ export function PriceChart({ candles, levels, profile, targets }: { candles: Can
       <span className="absolute right-14 top-2 text-[9px] uppercase tracking-widest text-violet-300/70">Volume profile · paths illustrative</span>
     </div>
   );
-}
+});

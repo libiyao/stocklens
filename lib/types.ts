@@ -15,6 +15,7 @@ export interface QuoteMeta {
   name: string;
   currency: string;
   exchange: string;
+  source: string;
 }
 
 export interface MarketResponse {
