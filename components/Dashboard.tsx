@@ -16,6 +16,7 @@ import { IndicatorPanel } from "./IndicatorPanel";
 import { LevelTracker } from "./LevelTracker";
 import { PriceChart, PriceChartHandle } from "./PriceChart";
 import { ScoreRing } from "./ScoreRing";
+import { ScenarioReasoningPanel } from "./ScenarioReasoningPanel";
 import { WatchlistBar } from "./WatchlistBar";
 
 interface DashboardProps {
@@ -92,6 +93,15 @@ export default function Dashboard({ initialTicker = DEFAULT_TICKER, initialRange
       `Stretch target: ${fmt.format(analysis.stretch)}`,
       `Technical score: ${analysis.scores.overall}/100`,
       "",
+      "Conditional scenarios",
+      `Leading setup: ${analysis.scenarios.scenarios.find(scenario => scenario.id === analysis.scenarios.leadingScenario)?.label} · ${analysis.scenarios.confidence} confidence`,
+      ...analysis.scenarios.scenarios.flatMap(scenario => [
+        `${scenario.label}: ${scenario.setupWeight}% setup weight`,
+        `  Trigger: ${scenario.trigger.label}`,
+        `  Target: ${fmt.format(scenario.target.low)}–${fmt.format(scenario.target.high)}`,
+        `  Invalidation: ${scenario.invalidation.label}`,
+      ]),
+      "",
       "The Read",
       analysis.read,
       "",
@@ -150,7 +160,7 @@ export default function Dashboard({ initialTicker = DEFAULT_TICKER, initialRange
             <div className="dashboard-grid">
               <section className="panel chart-card">
                 <div className="panel-title"><span><BarChart3 size={14} /> Price action & scenario paths</span><small>DAILY · {range} · PATHS ARE ILLUSTRATIVE</small></div>
-                <PriceChart ref={chartRef} candles={analysis.candles} levels={analysis.levels} profile={analysis.profile} targets={{ current: analysis.current, support: analysis.support, breakout: analysis.breakout, stretch: analysis.stretch }} />
+                <PriceChart ref={chartRef} candles={analysis.candles} levels={analysis.levels} profile={analysis.profile} scenarios={analysis.scenarios} />
               </section>
 
               <aside className="panel score-card">
@@ -159,6 +169,8 @@ export default function Dashboard({ initialTicker = DEFAULT_TICKER, initialRange
                 <div className="score-list">{Object.entries(analysis.scores).filter(([key]) => key !== "overall").map(([key, value]) => <div key={key}><span className="capitalize">{key}</span><div><i style={{ width: `${value}%` }} /></div><b>{value}</b></div>)}</div>
                 <div className="mt-5 border-t border-slate-800 pt-4 text-center"><span className={`signal ${analysis.scores.overall >= 65 ? "bullish" : analysis.scores.overall <= 40 ? "bearish" : "neutral"}`}>{analysis.scores.overall >= 65 ? "Constructive" : analysis.scores.overall <= 40 ? "Defensive" : "Neutral setup"}</span></div>
               </aside>
+
+              <ScenarioReasoningPanel analysis={analysis.scenarios} />
 
               <section className="indicator-grid"><IndicatorPanel title="Relative strength index · 14" values={analysis.rsi} type="rsi" /><IndicatorPanel title="MACD · 12 26 9" values={analysis.macd} type="macd" /></section>
 

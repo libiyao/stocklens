@@ -1,4 +1,5 @@
 import { calculateMACD, calculateRSI, calculateTechnicalScores, calculateVolumeProfile, detectSupportResistance, generateTheRead } from "./indicators";
+import { calculateScenarios, ScenarioAnalysis } from "./scenarios";
 import { Candle, MarketResponse, PriceLevel, TechnicalScores, VolumeBin } from "./types";
 
 export interface TechnicalAnalysis {
@@ -16,6 +17,7 @@ export interface TechnicalAnalysis {
   rsi: number[];
   macd: number[];
   profile: VolumeBin[];
+  scenarios: ScenarioAnalysis;
   read: string;
   explanations: string[];
   dataQuality: {
@@ -71,6 +73,9 @@ export function buildTechnicalAnalysis(data: MarketResponse): TechnicalAnalysis 
   const breakout = resistance?.price ?? current + atr;
   const stretch = breakout + atr * 2.5;
   const downside = Math.max(0.01, supportPrice - (current - supportPrice) * 0.7);
+  const profile = calculateVolumeProfile(candles);
+  const scenarios = calculateScenarios(candles, { support: supportPrice, breakout, stretch, downside, profile });
+  const leadingScenario = scenarios.scenarios.find(scenario => scenario.id === scenarios.leadingScenario)!;
 
   return {
     candles,
@@ -86,8 +91,9 @@ export function buildTechnicalAnalysis(data: MarketResponse): TechnicalAnalysis 
     downside,
     rsi: calculateRSI(closes).map(value => value ?? 50),
     macd: calculateMACD(closes).histogram,
-    profile: calculateVolumeProfile(candles),
-    read: generateTheRead(candles, scores, levels),
+    profile,
+    scenarios,
+    read: `${generateTheRead(candles, scores, levels)} The conditional scenario engine currently gives the most weight to the ${leadingScenario.label.toLowerCase()} at ${leadingScenario.setupWeight}%, with ${scenarios.confidence.toLowerCase()} model confidence.`,
     explanations: buildExplanations(candles, scores, levels, current),
     dataQuality: {
       lastCandleDate: candles.at(-1)!.time,

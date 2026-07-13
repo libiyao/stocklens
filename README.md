@@ -50,7 +50,9 @@ After deployment, Vercel will provide a live URL such as `https://stocklens.verc
 - Volume-at-price profile
 - Clustered swing support/resistance
 - Current price, major support, breakout trigger, and stretch target
-- Bull/base/bear illustrative paths
+- Conditional bull/base/bear paths with a five-session decision zone
+- Normalized scenario setup weights derived from trend, structure, momentum, volume, and volatility
+- Explicit activation, target range, invalidation, horizon, and factor-level reasoning for every scenario
 - Trend, momentum, volume, structure, and composite scores
 - Rule-based “The Read” summary
 - Plain-language score methodology
@@ -61,7 +63,7 @@ After deployment, Vercel will provide a live URL such as `https://stocklens.verc
 - Data source, last-candle, and candle-count quality strip
 - Chart PNG and text analysis exports
 
-All levels are calculated from the OHLCV candles returned for the selected range. Scenario paths are illustrative—not forecasts or investment advice.
+All levels and setup weights are calculated from the OHLCV candles returned for the selected range. Setup weights are normalized model scores, not historically calibrated probabilities. Scenario paths are conditional and illustrative—not forecasts or investment advice.
 
 ## Architecture
 
@@ -72,11 +74,13 @@ All levels are calculated from the OHLCV candles returned for the selected range
 - `lib/market-data.ts` — active provider gateway
 - `lib/indicators.ts` — pure indicator functions
 - `lib/analysis.ts` — dashboard-level technical analysis orchestration
+- `lib/scenarios/` — scenario feature extraction, weighting, target construction, and explanations
 - `lib/comparison.ts` — relative-performance calculations
 - `hooks/` — reusable market, search, watchlist, and level-tracker state
 - `components/PriceChart.tsx` — Lightweight Charts integration and PNG export
+- `components/ScenarioReasoningPanel.tsx` — transparent scenario conditions and factor evidence
 - `components/Dashboard.tsx` — page composition; feature details live in focused child components
-- `tests/indicators.test.mjs` — indicator invariants using Node’s built-in test runner
+- `tests/` — indicator and scenario-engine invariants using Node’s built-in test runner
 
 Yahoo Finance is used as an unofficial free source and may rate-limit requests. A Polygon, Twelve Data, or licensed feed adapter can implement `MarketDataProvider` and be selected in `lib/market-data.ts` without changing the UI or analysis layer.
 
