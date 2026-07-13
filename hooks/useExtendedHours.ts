@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ExtendedMarketResponse } from "@/lib/types";
 
 const REFRESH_INTERVAL_MS = 60_000;
@@ -10,10 +10,16 @@ export function useExtendedHours(ticker: string) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const activeRequests = useRef(0);
 
   const load = useCallback(async (signal?: AbortSignal, background = false) => {
+    if (background && activeRequests.current > 0) return;
+    activeRequests.current += 1;
     background ? setRefreshing(true) : setLoading(true);
-    if (!background) setError("");
+    if (!background) {
+      setData(null);
+      setError("");
+    }
     try {
       const response = await fetch(`/api/extended?ticker=${encodeURIComponent(ticker)}`, { signal });
       const payload = await response.json();
@@ -24,6 +30,7 @@ export function useExtendedHours(ticker: string) {
       if (error instanceof DOMException && error.name === "AbortError") return;
       setError(error instanceof Error ? error.message : "Unable to load extended-hours data.");
     } finally {
+      activeRequests.current = Math.max(0, activeRequests.current - 1);
       if (!signal?.aborted) {
         setLoading(false);
         setRefreshing(false);

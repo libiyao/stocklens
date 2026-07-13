@@ -39,7 +39,7 @@ After deployment, Vercel will provide a live URL such as `https://stocklens.verc
 ### Production notes
 
 - `package.json` pins Node to `20.x` for consistent hosting builds.
-- The market-data route sends CDN cache headers and includes a small per-IP rate limit to reduce accidental provider abuse.
+- The market-data routes send CDN cache headers and include bounded, best-effort per-IP rate limits to reduce accidental provider abuse.
 - Yahoo Finance is an unofficial free source; for serious public traffic, replace `lib/market-data.ts` with a licensed provider such as Polygon, Twelve Data, or another market-data API.
 - Technical levels and scenario paths are informational only and are not investment advice.
 
@@ -75,7 +75,9 @@ All levels and setup weights are calculated from completed regular-session daily
 - `app/api/extended/route.ts` — short-cache intraday and extended-session API
 - `app/stock/[ticker]/page.tsx` — shareable ticker routes
 - `lib/providers/` — replaceable market-data provider interface and Yahoo adapter
+- `lib/market-sessions.ts` — shared US market-session classification
 - `lib/market-data.ts` — active provider gateway
+- `lib/server/rate-limit.ts` — shared bounded API protection
 - `lib/indicators.ts` — pure indicator functions
 - `lib/analysis.ts` — dashboard-level technical analysis orchestration
 - `lib/scenarios/` — scenario feature extraction, weighting, target construction, and explanations

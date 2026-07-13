@@ -1,25 +1,10 @@
 import { DATA_SOURCE } from "../constants";
-import { ExtendedMarketResponse, IntradayCandle, IntradaySession, MarketResponse, MarketState, TimeRange } from "../types";
+import { classifyIntradaySession, isWithinTradingPeriod, TradingPeriods } from "../market-sessions";
+import { ExtendedMarketResponse, IntradayCandle, MarketResponse, MarketState, TimeRange } from "../types";
+import { normalizeSymbol } from "./shared";
 import { MarketDataProvider, TickerSearchResult } from "./types";
 
 const RANGE_MAP: Record<TimeRange, string> = { "6M": "6mo", "1Y": "1y", "2Y": "2y", "5Y": "5y" };
-
-interface TradingPeriod {
-  start?: number;
-  end?: number;
-}
-
-interface TradingPeriods {
-  pre?: TradingPeriod;
-  regular?: TradingPeriod;
-  post?: TradingPeriod;
-}
-
-function normalizeSymbol(ticker: string) {
-  const symbol = ticker.trim().toUpperCase();
-  if (!/^[A-Z0-9.^=-]{1,15}$/.test(symbol)) throw new Error("Enter a valid ticker symbol.");
-  return symbol;
-}
 
 async function fetchOHLCV(ticker: string, range: TimeRange): Promise<MarketResponse> {
   const symbol = normalizeSymbol(ticker);
@@ -49,39 +34,12 @@ async function fetchOHLCV(ticker: string, range: TimeRange): Promise<MarketRespo
   };
 }
 
-function isWithin(timestamp: number, period?: TradingPeriod) {
-  return period?.start != null && period.end != null && timestamp >= period.start && timestamp < period.end;
-}
-
 function resolveMarketState(periods: TradingPeriods): MarketState {
   const now = Math.floor(Date.now() / 1000);
-  if (isWithin(now, periods.pre)) return "PRE";
-  if (isWithin(now, periods.regular)) return "REGULAR";
-  if (isWithin(now, periods.post)) return "POST";
+  if (isWithinTradingPeriod(now, periods.pre)) return "PRE";
+  if (isWithinTradingPeriod(now, periods.regular)) return "REGULAR";
+  if (isWithinTradingPeriod(now, periods.post)) return "POST";
   return "CLOSED";
-}
-
-function clockMinutes(timestamp: number, timezone: string) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(new Date(timestamp * 1000));
-  const hour = Number(parts.find(part => part.type === "hour")?.value ?? 0);
-  const minute = Number(parts.find(part => part.type === "minute")?.value ?? 0);
-  return hour * 60 + minute;
-}
-
-export function classifyIntradaySession(timestamp: number, timezone: string, periods?: TradingPeriods): IntradaySession | null {
-  if (isWithin(timestamp, periods?.pre)) return "pre";
-  if (isWithin(timestamp, periods?.regular)) return "regular";
-  if (isWithin(timestamp, periods?.post)) return "post";
-  const minutes = clockMinutes(timestamp, timezone);
-  if (minutes >= 4 * 60 && minutes < 9 * 60 + 30) return "pre";
-  if (minutes >= 9 * 60 + 30 && minutes < 16 * 60) return "regular";
-  if (minutes >= 16 * 60 && minutes < 20 * 60) return "post";
-  return null;
 }
 
 async function fetchExtendedHours(ticker: string): Promise<ExtendedMarketResponse> {

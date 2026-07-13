@@ -1,32 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchOHLCV } from "@/lib/market-data";
+import { createRateLimiter } from "@/lib/server/rate-limit";
 import { TimeRange } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-const WINDOW_MS = 60_000;
-const MAX_REQUESTS_PER_WINDOW = 30;
-const buckets = new Map<string, { count: number; resetAt: number }>();
-
-function getClientKey(request: NextRequest) {
-  return (
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    request.headers.get("x-real-ip") ||
-    "anonymous"
-  );
-}
-
-function isRateLimited(key: string) {
-  const now = Date.now();
-  const bucket = buckets.get(key);
-  if (!bucket || bucket.resetAt <= now) {
-    buckets.set(key, { count: 1, resetAt: now + WINDOW_MS });
-    return false;
-  }
-
-  bucket.count += 1;
-  return bucket.count > MAX_REQUESTS_PER_WINDOW;
-}
+const isRateLimited = createRateLimiter({ windowMs: 60_000, maxRequests: 30 });
 
 function json(data: unknown, status = 200) {
   return NextResponse.json(data, {
@@ -40,7 +19,7 @@ function json(data: unknown, status = 200) {
 export async function GET(request: NextRequest) {
   const ticker = request.nextUrl.searchParams.get("ticker") || "";
   const range = (request.nextUrl.searchParams.get("range") || "1Y") as TimeRange;
-  if (isRateLimited(getClientKey(request))) return json({ error: "Too many requests. Please wait a minute and try again." }, 429);
+  if (isRateLimited(request)) return json({ error: "Too many requests. Please wait a minute and try again." }, 429);
   if (!["6M", "1Y", "2Y", "5Y"].includes(range)) return json({ error: "Invalid time range." }, 400);
   try {
     return json(await fetchOHLCV(ticker, range));

@@ -42,5 +42,5 @@ export function IntradayChart({ candles }: { candles: IntradayCandle[] }) {
     return () => { observer.disconnect(); chart.remove(); };
   }, [candles]);
 
-  return <div ref={container} className="intraday-chart" />;
+  return <div ref={container} className={`intraday-chart ${candles.length ? "" : "empty"}`}>{!candles.length && <span>No bars are available for this session.</span>}</div>;
 }

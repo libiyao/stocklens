@@ -61,8 +61,8 @@ export function ExtendedHoursPanel({ ticker }: { ticker: string }) {
       <div className="extended-meta">
         <span><Clock3 size={11} /> Updated {updated}</span>
         <span>Regular close <b>{priceFormat.format(data.regularPrice)}</b></span>
-        <span>Extended prints <b>{extendedCount}</b></span>
-        <span>5-minute candles · {data.source}</span>
+        <span>Extended bars <b>{extendedCount}</b></span>
+        <span>5-minute bars · {data.source}</span>
         {error && <span className="extended-warning">Refresh delayed</span>}
       </div>
       <div className="session-legend"><span className="pre">Pre-market</span><span className="regular">Regular</span><span className="post">After hours</span><small>{view === "extended" ? "All available sessions" : "Regular session only"}</small></div>
