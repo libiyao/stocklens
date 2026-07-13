@@ -12,9 +12,10 @@ import { TimeRange } from "@/lib/types";
 import { ComparePanel } from "./ComparePanel";
 import { DashboardHeader } from "./DashboardHeader";
 import { DataQualityBar } from "./DataQualityBar";
+import { ExtendedHoursPanel } from "./ExtendedHoursPanel";
 import { IndicatorPanel } from "./IndicatorPanel";
 import { LevelTracker } from "./LevelTracker";
-import { PriceChart, PriceChartHandle } from "./PriceChart";
+import { ChartViewMode, PriceChart, PriceChartHandle } from "./PriceChart";
 import { ScoreRing } from "./ScoreRing";
 import { ScenarioReasoningPanel } from "./ScenarioReasoningPanel";
 import { WatchlistBar } from "./WatchlistBar";
@@ -37,6 +38,7 @@ export default function Dashboard({ initialTicker = DEFAULT_TICKER, initialRange
   const [query, setQuery] = useState(normalizedInitialTicker);
   const [ticker, setTicker] = useState(normalizedInitialTicker);
   const [range, setRange] = useState<TimeRange>(initialRange);
+  const [chartView, setChartView] = useState<ChartViewMode>("focus");
   const [copied, setCopied] = useState(false);
   const { data, loading, error, reload } = useMarketData(ticker, range);
   const { suggestions, searching, clearSuggestions } = useTickerSearch(query, ticker);
@@ -157,10 +159,21 @@ export default function Dashboard({ initialTicker = DEFAULT_TICKER, initialRange
               copied={copied}
             />
 
+            <ExtendedHoursPanel ticker={data.meta.symbol} />
+
             <div className="dashboard-grid">
               <section className="panel chart-card">
-                <div className="panel-title"><span><BarChart3 size={14} /> Price action & scenario paths</span><small>DAILY · {range} · PATHS ARE ILLUSTRATIVE</small></div>
-                <PriceChart ref={chartRef} candles={analysis.candles} levels={analysis.levels} profile={analysis.profile} scenarios={analysis.scenarios} />
+                <div className="panel-title chart-panel-title">
+                  <span><BarChart3 size={14} /> Price action & scenario paths</span>
+                  <div className="chart-title-tools">
+                    <small>DAILY · {range} · PATHS ARE ILLUSTRATIVE</small>
+                    <div className="chart-view-toggle" aria-label="Chart viewport">
+                      <button type="button" className={chartView === "focus" ? "active" : ""} aria-pressed={chartView === "focus"} onClick={() => setChartView("focus")}>Scenario focus</button>
+                      <button type="button" className={chartView === "full" ? "active" : ""} aria-pressed={chartView === "full"} onClick={() => setChartView("full")}>Full history</button>
+                    </div>
+                  </div>
+                </div>
+                <PriceChart ref={chartRef} candles={analysis.candles} levels={analysis.levels} profile={analysis.profile} scenarios={analysis.scenarios} viewMode={chartView} />
               </section>
 
               <aside className="panel score-card">

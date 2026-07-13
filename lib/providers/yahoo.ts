@@ -1,8 +1,19 @@
 import { DATA_SOURCE } from "../constants";
-import { MarketResponse, TimeRange } from "../types";
+import { ExtendedMarketResponse, IntradayCandle, IntradaySession, MarketResponse, MarketState, TimeRange } from "../types";
 import { MarketDataProvider, TickerSearchResult } from "./types";
 
 const RANGE_MAP: Record<TimeRange, string> = { "6M": "6mo", "1Y": "1y", "2Y": "2y", "5Y": "5y" };
+
+interface TradingPeriod {
+  start?: number;
+  end?: number;
+}
+
+interface TradingPeriods {
+  pre?: TradingPeriod;
+  regular?: TradingPeriod;
+  post?: TradingPeriod;
+}
 
 function normalizeSymbol(ticker: string) {
   const symbol = ticker.trim().toUpperCase();
@@ -38,6 +49,94 @@ async function fetchOHLCV(ticker: string, range: TimeRange): Promise<MarketRespo
   };
 }
 
+function isWithin(timestamp: number, period?: TradingPeriod) {
+  return period?.start != null && period.end != null && timestamp >= period.start && timestamp < period.end;
+}
+
+function resolveMarketState(periods: TradingPeriods): MarketState {
+  const now = Math.floor(Date.now() / 1000);
+  if (isWithin(now, periods.pre)) return "PRE";
+  if (isWithin(now, periods.regular)) return "REGULAR";
+  if (isWithin(now, periods.post)) return "POST";
+  return "CLOSED";
+}
+
+function clockMinutes(timestamp: number, timezone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(timestamp * 1000));
+  const hour = Number(parts.find(part => part.type === "hour")?.value ?? 0);
+  const minute = Number(parts.find(part => part.type === "minute")?.value ?? 0);
+  return hour * 60 + minute;
+}
+
+export function classifyIntradaySession(timestamp: number, timezone: string, periods?: TradingPeriods): IntradaySession | null {
+  if (isWithin(timestamp, periods?.pre)) return "pre";
+  if (isWithin(timestamp, periods?.regular)) return "regular";
+  if (isWithin(timestamp, periods?.post)) return "post";
+  const minutes = clockMinutes(timestamp, timezone);
+  if (minutes >= 4 * 60 && minutes < 9 * 60 + 30) return "pre";
+  if (minutes >= 9 * 60 + 30 && minutes < 16 * 60) return "regular";
+  if (minutes >= 16 * 60 && minutes < 20 * 60) return "post";
+  return null;
+}
+
+async function fetchExtendedHours(ticker: string): Promise<ExtendedMarketResponse> {
+  const symbol = normalizeSymbol(ticker);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=5m&includePrePost=true&events=div%2Csplits`;
+  const response = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 StockLens/1.0", Accept: "application/json" }, next: { revalidate: 30 } });
+  if (!response.ok) throw new Error(response.status === 404 ? "Ticker not found." : "Extended-hours data is unavailable.");
+  const json = await response.json();
+  if (json.chart?.error) throw new Error(json.chart.error.description || "Extended-hours data is unavailable.");
+  const result = json.chart?.result?.[0];
+  const quote = result?.indicators?.quote?.[0];
+  if (!result?.timestamp?.length || !quote) throw new Error("No intraday data was returned.");
+  const timezone = result.meta.exchangeTimezoneName || "America/New_York";
+  const periods: TradingPeriods = result.meta.currentTradingPeriod || {};
+  const candles: IntradayCandle[] = result.timestamp.flatMap((timestamp: number, index: number) => {
+    const open = quote.open?.[index], high = quote.high?.[index], low = quote.low?.[index], close = quote.close?.[index];
+    if ([open, high, low, close].some(value => value == null || !Number.isFinite(value))) return [];
+    const session = classifyIntradaySession(timestamp, timezone, periods);
+    if (!session) return [];
+    const volume = Number.isFinite(quote.volume?.[index]) ? quote.volume[index] : 0;
+    return [{ time: new Date(timestamp * 1000).toISOString(), timestamp, open, high, low, close, volume, session }];
+  });
+  if (!candles.length) throw new Error("No valid intraday candles were returned.");
+
+  const marketState = resolveMarketState(periods);
+  const regularCandles = candles.filter(candle => candle.session === "regular");
+  const regularPrice = result.meta.regularMarketPrice ?? regularCandles.at(-1)?.close ?? candles.at(-1)!.close;
+  const previousClose = result.meta.previousClose ?? result.meta.chartPreviousClose ?? regularPrice;
+  const activeExtendedSession = marketState === "PRE" ? "pre" : marketState === "POST" ? "post" : null;
+  const extendedCandles = candles.filter(candle => candle.session !== "regular");
+  const activeExtendedCandles = activeExtendedSession ? extendedCandles.filter(candle => candle.session === activeExtendedSession) : [];
+  const latestExtended = activeExtendedCandles.at(-1) ?? extendedCandles.at(-1);
+  const referencePrice = marketState === "PRE" ? previousClose : regularPrice;
+  const extendedPrice = latestExtended?.close ?? null;
+  const extendedChange = extendedPrice == null ? null : extendedPrice - referencePrice;
+
+  return {
+    symbol: result.meta.symbol || symbol,
+    currency: result.meta.currency || "USD",
+    exchange: result.meta.fullExchangeName || result.meta.exchangeName || "Market",
+    timezone,
+    source: DATA_SOURCE,
+    marketState,
+    regularPrice,
+    previousClose,
+    referencePrice,
+    referenceLabel: marketState === "PRE" ? "Previous close" : "Regular close",
+    extendedPrice,
+    extendedChange,
+    extendedChangePct: extendedChange == null || referencePrice === 0 ? null : extendedChange / referencePrice * 100,
+    lastUpdated: latestExtended?.timestamp ?? candles.at(-1)!.timestamp,
+    candles,
+  };
+}
+
 async function searchTickers(query: string): Promise<TickerSearchResult[]> {
   const q = query.trim();
   if (q.length < 1 || q.length > 30) return [];
@@ -59,5 +158,6 @@ async function searchTickers(query: string): Promise<TickerSearchResult[]> {
 export const yahooProvider: MarketDataProvider = {
   name: DATA_SOURCE,
   fetchOHLCV,
+  fetchExtendedHours,
   searchTickers,
 };

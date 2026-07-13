@@ -1,8 +1,9 @@
-import { MarketResponse, TimeRange } from "../types";
+import { ExtendedMarketResponse, MarketResponse, TimeRange } from "../types";
 
 export interface MarketDataProvider {
   name: string;
   fetchOHLCV(ticker: string, range: TimeRange): Promise<MarketResponse>;
+  fetchExtendedHours(ticker: string): Promise<ExtendedMarketResponse>;
   searchTickers(query: string): Promise<TickerSearchResult[]>;
 }
 

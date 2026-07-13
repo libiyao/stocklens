@@ -10,6 +10,8 @@ export interface PriceChartHandle {
   exportPng: (filename?: string) => void;
 }
 
+export type ChartViewMode = "focus" | "full";
+
 const SMA_DEFINITIONS = [
   { period: 20, color: "#63b3ff" },
   { period: 50, color: "#b996ff" },
@@ -31,7 +33,19 @@ function futureTradingDays(from: string, offsets: number[]) {
   return dates;
 }
 
-export const PriceChart = forwardRef<PriceChartHandle, { candles: Candle[]; levels: PriceLevel[]; profile: VolumeBin[]; scenarios: ScenarioAnalysis }>(function PriceChart({ candles, levels, profile, scenarios }, ref) {
+function interpolatePath(path: ScenarioAnalysis["scenarios"][number]["path"]) {
+  const endOffset = path.at(-1)!.offset;
+  return Array.from({ length: endOffset + 1 }, (_, offset) => {
+    const rightIndex = path.findIndex(point => point.offset >= offset);
+    const right = path[Math.max(0, rightIndex)];
+    const left = path[Math.max(0, rightIndex - 1)] ?? right;
+    if (right.offset === left.offset) return { offset, value: right.value };
+    const progress = (offset - left.offset) / (right.offset - left.offset);
+    return { offset, value: left.value + (right.value - left.value) * progress };
+  });
+}
+
+export const PriceChart = forwardRef<PriceChartHandle, { candles: Candle[]; levels: PriceLevel[]; profile: VolumeBin[]; scenarios: ScenarioAnalysis; viewMode: ChartViewMode }>(function PriceChart({ candles, levels, profile, scenarios, viewMode }, ref) {
   const container = useRef<HTMLDivElement>(null);
   const wrapper = useRef<HTMLDivElement>(null);
   const chartApi = useRef<IChartApi | null>(null);
@@ -41,8 +55,14 @@ export const PriceChart = forwardRef<PriceChartHandle, { candles: Candle[]; leve
   const bullTarget = useRef<HTMLDivElement>(null);
   const baseTarget = useRef<HTMLDivElement>(null);
   const bearTarget = useRef<HTMLDivElement>(null);
+  const bullConnector = useRef<HTMLDivElement>(null);
+  const baseConnector = useRef<HTMLDivElement>(null);
+  const bearConnector = useRef<HTMLDivElement>(null);
   const divider = useRef<HTMLDivElement>(null);
   const decisionZone = useRef<HTMLDivElement>(null);
+  const volumeShelf = useRef<HTMLDivElement>(null);
+  const volumeLabel = useRef<HTMLSpanElement>(null);
+  const maxScenarioOffset = useMemo(() => Math.max(...scenarios.scenarios.flatMap(scenario => scenario.path.map(point => point.offset))), [scenarios]);
   const movingAverages = useMemo(() => {
     const closes = candles.map(candle => candle.close);
     return SMA_DEFINITIONS.map(definition => {
@@ -91,19 +111,21 @@ export const PriceChart = forwardRef<PriceChartHandle, { candles: Candle[]; leve
     levels.slice(0, 5).forEach(level => candleSeries.createPriceLine({ price: level.price, color: level.type === "support" ? "rgba(34,211,166,.65)" : "rgba(243,201,105,.7)", lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: level.type === "support" ? "S" : "R" }));
 
     const lastTime = candles.at(-1)!.time;
-    const offsets = [...new Set(scenarios.scenarios.flatMap(scenario => scenario.path.map(point => point.offset)).filter(offset => offset > 0))].sort((a, b) => a - b);
+    const offsets = Array.from({ length: maxScenarioOffset }, (_, index) => index + 1);
     const dates = futureTradingDays(lastTime, offsets);
     const dateByOffset = new Map(offsets.map((offset, index) => [offset, dates[index]]));
     const labels: Record<ScenarioKind, typeof bullLabel> = { bull: bullLabel, base: baseLabel, bear: bearLabel };
+    const connectors: Record<ScenarioKind, typeof bullConnector> = { bull: bullConnector, base: baseConnector, bear: bearConnector };
     const targetBands: Record<ScenarioKind, typeof bullTarget> = { bull: bullTarget, base: baseTarget, bear: bearTarget };
     const scenarioDefinitions = scenarios.scenarios.map(scenario => ({
       ...scenario,
       label: labels[scenario.id],
+      connector: connectors[scenario.id],
       targetBand: targetBands[scenario.id],
       end: scenario.path.at(-1)!.value,
       endTime: dateByOffset.get(scenario.path.at(-1)!.offset)!,
       targetStartTime: dateByOffset.get(scenario.path.find(point => point.phase === "target")?.offset ?? scenario.path.at(-1)!.offset)!,
-      data: scenario.path.map(point => ({ time: point.offset === 0 ? lastTime : dateByOffset.get(point.offset)!, value: point.value })),
+      data: interpolatePath(scenario.path).map(point => ({ time: point.offset === 0 ? lastTime : dateByOffset.get(point.offset)!, value: point.value })),
     }));
     const scenarioSeries = scenarioDefinitions.map(definition => {
       const series = chart.addSeries(LineSeries, { color: definition.color, lineWidth: 2, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
@@ -115,25 +137,57 @@ export const PriceChart = forwardRef<PriceChartHandle, { candles: Candle[]; leve
     const positionScenarioLabels = () => {
       const historyX = chart.timeScale().timeToCoordinate(lastTime);
       if (historyX !== null && divider.current) divider.current.style.left = `${historyX}px`;
+      if (historyX !== null) {
+        const shelfLeft = Math.max(8, historyX - 98);
+        if (volumeShelf.current) volumeShelf.current.style.left = `${shelfLeft}px`;
+        if (volumeLabel.current) volumeLabel.current.style.left = `${shelfLeft}px`;
+      }
       const decisionTime = dateByOffset.get(scenarios.decisionZone.days);
       const decisionX = decisionTime ? chart.timeScale().timeToCoordinate(decisionTime) : null;
       if (historyX !== null && decisionX !== null && decisionZone.current) {
         decisionZone.current.style.left = `${historyX}px`;
-        decisionZone.current.style.width = `${Math.max(0, decisionX - historyX)}px`;
+        decisionZone.current.style.width = `${Math.max(22, decisionX - historyX)}px`;
       }
-      scenarioSeries.forEach(({ label, targetBand, target, targetStartTime, end, endTime, series }) => {
+      const wrapperWidth = wrapper.current?.clientWidth ?? 0;
+      const labelRailX = Math.max(24, wrapperWidth - 130);
+      const positions = scenarioSeries.flatMap(definition => {
+        const endX = chart.timeScale().timeToCoordinate(definition.endTime);
+        const y = definition.series.priceToCoordinate(definition.end);
+        return endX === null || y === null ? [] : [{ ...definition, endX, y, labelY: y - 9 }];
+      }).sort((a, b) => a.labelY - b.labelY);
+      const minimumLabelY = 42;
+      const maximumLabelY = Math.max(minimumLabelY + 60, (container.current?.clientHeight ?? 440) - 128);
+      positions.forEach((position, index) => {
+        position.labelY = Math.max(minimumLabelY, position.labelY, index === 0 ? minimumLabelY : positions[index - 1].labelY + 25);
+      });
+      const overflow = Math.max(0, (positions.at(-1)?.labelY ?? 0) - maximumLabelY);
+      positions.forEach(position => { position.labelY -= overflow; });
+
+      positions.forEach(({ label, connector, endX, y, labelY }) => {
+        if (label.current) {
+          label.current.style.left = `${labelRailX}px`;
+          label.current.style.top = `${labelY}px`;
+        }
+        if (connector.current) {
+          const destinationX = labelRailX - 4;
+          const destinationY = labelY + 9;
+          const deltaX = destinationX - endX;
+          const deltaY = destinationY - y;
+          connector.current.style.left = `${endX}px`;
+          connector.current.style.top = `${y}px`;
+          connector.current.style.width = `${Math.hypot(deltaX, deltaY)}px`;
+          connector.current.style.transform = `rotate(${Math.atan2(deltaY, deltaX)}rad)`;
+        }
+      });
+
+      scenarioSeries.forEach(({ targetBand, target, targetStartTime, endTime, series }) => {
         const endX = chart.timeScale().timeToCoordinate(endTime);
         const targetStartX = chart.timeScale().timeToCoordinate(targetStartTime);
-        const y = series.priceToCoordinate(end);
-        if (label.current && endX !== null && y !== null) {
-          label.current.style.left = `${Math.min(endX + 7, (wrapper.current?.clientWidth ?? endX) - 76)}px`;
-          label.current.style.top = `${Math.max(25, y - 9)}px`;
-        }
         const targetTop = series.priceToCoordinate(target.high);
         const targetBottom = series.priceToCoordinate(target.low);
         if (targetBand.current && targetStartX !== null && endX !== null && targetTop !== null && targetBottom !== null) {
           targetBand.current.style.left = `${targetStartX}px`;
-          targetBand.current.style.width = `${Math.max(8, endX - targetStartX)}px`;
+          targetBand.current.style.width = `${Math.max(8, Math.min(endX, labelRailX - 8) - targetStartX)}px`;
           targetBand.current.style.top = `${Math.min(targetTop, targetBottom)}px`;
           targetBand.current.style.height = `${Math.max(5, Math.abs(targetBottom - targetTop))}px`;
         }
@@ -144,7 +198,16 @@ export const PriceChart = forwardRef<PriceChartHandle, { candles: Candle[]; leve
     const observer = new ResizeObserver(([entry]) => { chart.applyOptions({ width: entry.contentRect.width }); requestAnimationFrame(positionScenarioLabels); });
     observer.observe(container.current);
     return () => { chartApi.current = null; observer.disconnect(); chart.timeScale().unsubscribeVisibleLogicalRangeChange(positionScenarioLabels); chart.remove(); };
-  }, [candles, levels, movingAverages, scenarios]);
+  }, [candles, levels, maxScenarioOffset, movingAverages, scenarios]);
+  useEffect(() => {
+    const chart = chartApi.current;
+    if (!chart) return;
+    const historyBars = viewMode === "focus" ? Math.min(115, candles.length) : candles.length;
+    chart.timeScale().setVisibleLogicalRange({
+      from: Math.max(-1, candles.length - historyBars - 1),
+      to: candles.length - 1 + maxScenarioOffset + 18,
+    });
+  }, [candles.length, maxScenarioOffset, viewMode]);
   const maxVolume = Math.max(...profile.map(p => p.volume));
   return (
     <div ref={wrapper} className="relative overflow-hidden">
@@ -154,16 +217,19 @@ export const PriceChart = forwardRef<PriceChartHandle, { candles: Candle[]; leve
       <span ref={bullLabel} className="scenario-label bull">Bull · {scenarios.scenarios.find(scenario => scenario.id === "bull")?.setupWeight}%</span>
       <span ref={baseLabel} className="scenario-label base">Base · {scenarios.scenarios.find(scenario => scenario.id === "base")?.setupWeight}%</span>
       <span ref={bearLabel} className="scenario-label bear">Bear · {scenarios.scenarios.find(scenario => scenario.id === "bear")?.setupWeight}%</span>
-      <div ref={bullTarget} className="scenario-target-band bull"><span>Target</span></div>
-      <div ref={baseTarget} className="scenario-target-band base"><span>Target</span></div>
-      <div ref={bearTarget} className="scenario-target-band bear"><span>Target</span></div>
-      <div className="volume-profile-shelf pointer-events-none absolute right-12 top-9 bottom-[106px] w-24 opacity-40 flex flex-col-reverse justify-stretch">
+      <div ref={bullConnector} className="scenario-connector bull" />
+      <div ref={baseConnector} className="scenario-connector base" />
+      <div ref={bearConnector} className="scenario-connector bear" />
+      <div ref={bullTarget} className="scenario-target-band bull" />
+      <div ref={baseTarget} className="scenario-target-band base" />
+      <div ref={bearTarget} className="scenario-target-band bear" />
+      <div ref={volumeShelf} className="volume-profile-shelf pointer-events-none absolute top-9 bottom-[106px] w-[5.5rem] flex flex-col-reverse justify-stretch">
         {profile.map((bin, i) => <div key={i} className="flex-1 flex items-center justify-end"><div className="h-[85%] bg-violet-400/60 border-r border-violet-300" style={{ width: `${(bin.volume / maxVolume) * 100}%` }} /></div>)}
       </div>
       <div className="sma-legend absolute left-3 top-2 flex flex-wrap gap-3 text-[10px] font-medium tracking-wide text-slate-400">
         {movingAverages.map(({ period, color, latest }) => <span key={period} className="flex items-center gap-1"><i className="h-0.5 w-3" style={{ background: color }} />SMA{period}<b>{latest == null ? "—" : priceFormat.format(latest)}</b></span>)}
       </div>
-      <span className="volume-profile-label absolute right-14 top-2 text-[9px] uppercase tracking-widest text-violet-300/70">Volume shelf · paths illustrative</span>
+      <span ref={volumeLabel} className="volume-profile-label absolute top-2 text-[8px] uppercase tracking-widest text-violet-300/70">Volume shelf</span>
     </div>
   );
 });

@@ -23,6 +23,38 @@ export interface MarketResponse {
   meta: QuoteMeta;
 }
 
+export type IntradaySession = "pre" | "regular" | "post";
+export type MarketState = "PRE" | "REGULAR" | "POST" | "CLOSED";
+
+export interface IntradayCandle {
+  time: string;
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  session: IntradaySession;
+}
+
+export interface ExtendedMarketResponse {
+  symbol: string;
+  currency: string;
+  exchange: string;
+  timezone: string;
+  source: string;
+  marketState: MarketState;
+  regularPrice: number;
+  previousClose: number;
+  referencePrice: number;
+  referenceLabel: "Previous close" | "Regular close";
+  extendedPrice: number | null;
+  extendedChange: number | null;
+  extendedChangePct: number | null;
+  lastUpdated: number;
+  candles: IntradayCandle[];
+}
+
 export interface PriceLevel {
   price: number;
   strength: number;

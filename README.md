@@ -51,6 +51,7 @@ After deployment, Vercel will provide a live URL such as `https://stocklens.verc
 - Clustered swing support/resistance
 - Current price, major support, breakout trigger, and stretch target
 - Conditional bull/base/bear paths with a five-session decision zone
+- Scenario-focus and full-history chart viewports with a dedicated path label rail
 - Normalized scenario setup weights derived from trend, structure, momentum, volume, and volatility
 - Explicit activation, target range, invalidation, horizon, and factor-level reasoning for every scenario
 - Trend, momentum, volume, structure, and composite scores
@@ -61,14 +62,17 @@ After deployment, Vercel will provide a live URL such as `https://stocklens.verc
 - Shareable ticker URLs such as `/stock/NVDA?range=2Y`
 - Ticker/company autocomplete
 - Data source, last-candle, and candle-count quality strip
+- Pre-market, regular-session, and after-hours quote panel with 5-minute candles
+- Regular/Extended intraday chart toggle with automatic one-minute refresh
 - Chart PNG and text analysis exports
 
-All levels and setup weights are calculated from the OHLCV candles returned for the selected range. Setup weights are normalized model scores, not historically calibrated probabilities. Scenario paths are conditional and illustrative—not forecasts or investment advice.
+All levels and setup weights are calculated from completed regular-session daily OHLCV candles returned for the selected range. Extended-session prices are displayed in a separate intraday panel and never alter daily indicators or scenario calculations. Setup weights are normalized model scores, not historically calibrated probabilities. Scenario paths are conditional and illustrative—not forecasts or investment advice.
 
 ## Architecture
 
 - `app/api/market/route.ts` — validated and cached market-data API
 - `app/api/search/route.ts` — cached ticker search API
+- `app/api/extended/route.ts` — short-cache intraday and extended-session API
 - `app/stock/[ticker]/page.tsx` — shareable ticker routes
 - `lib/providers/` — replaceable market-data provider interface and Yahoo adapter
 - `lib/market-data.ts` — active provider gateway
@@ -76,7 +80,7 @@ All levels and setup weights are calculated from the OHLCV candles returned for 
 - `lib/analysis.ts` — dashboard-level technical analysis orchestration
 - `lib/scenarios/` — scenario feature extraction, weighting, target construction, and explanations
 - `lib/comparison.ts` — relative-performance calculations
-- `hooks/` — reusable market, search, watchlist, and level-tracker state
+- `hooks/` — reusable market, extended-session, search, watchlist, and level-tracker state
 - `components/PriceChart.tsx` — Lightweight Charts integration and PNG export
 - `components/ScenarioReasoningPanel.tsx` — transparent scenario conditions and factor evidence
 - `components/Dashboard.tsx` — page composition; feature details live in focused child components

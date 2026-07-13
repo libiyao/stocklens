@@ -7,6 +7,10 @@ export async function fetchOHLCV(ticker: string, range: TimeRange): Promise<Mark
   return provider.fetchOHLCV(ticker, range);
 }
 
+export async function fetchExtendedHours(ticker: string) {
+  return provider.fetchExtendedHours(ticker);
+}
+
 export async function searchTickers(query: string) {
   return provider.searchTickers(query);
 }
